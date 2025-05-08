@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор изображений - Fusion Brain</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #result {
+            margin-top: 20px;
+            text-align: center;
+        }
+        #generatedImage {
+            max-width: 100%;
+            border-radius: 4px;
+            display: none;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .spinner {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .error {
+            color: #d9534f;
+            margin-top: 10px;
+        }
+        .download-btn {
+            background-color: #3498db;
+            margin-top: 10px;
+            display: none;
+        }
+        .download-btn:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Генератор изображений</h1>
+        <p>Введите описание изображения, которое вы хотите создать:</p>
+        
+        <textarea id="prompt" placeholder="Например: 'Космический корабль в форме кота, летящий через галактику'"></textarea>
+        
+        <button id="generateBtn">Сгенерировать изображение</button>
+        <button id="downloadBtn" class="download-btn">Скачать изображение</button>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Генерация изображения... Это может занять некоторое время.</p>
+        </div>
+        
+        <div id="result">
+            <img id="generatedImage" alt="Сгенерированное изображение">
+            <p class="error" id="error"></p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const generateBtn = document.getElementById('generateBtn');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const promptInput = document.getElementById('prompt');
+            const loadingDiv = document.getElementById('loading');
+            const generatedImage = document.getElementById('generatedImage');
+            const errorElement = document.getElementById('error');
+            
+            // API ключ Fusion Brain
+            const API_KEY = 'D885F4E3A5FCBD05E82F0A327A1D80A5';
+            const API_URL = 'https://api.fusionbrain.ai/web/api/v1/text2image/run?model_id=1';
+            
+            generateBtn.addEventListener('click', async function() {
+                const prompt = promptInput.value.trim();
+                
+                if (!prompt) {
+                    showError('Пожалуйста, введите описание изображения');
+                    return;
+                }
+                
+                // Скрываем предыдущие результаты и ошибки
+                generatedImage.style.display = 'none';
+                downloadBtn.style.display = 'none';
+                errorElement.textContent = '';
+                
+                // Показываем индикатор загрузки
+                loadingDiv.style.display = 'block';
+                generateBtn.disabled = true;
+                
+                try {
+                    // Шаг 1: Отправляем запрос на генерацию изображения
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Key': `Key ${API_KEY}`
+                        },
+                        body: JSON.stringify({
+                            params: {
+                                type: 'GENERATE',
+                                width: 1024,
+                                height: 1024,
+                                generateParams: {
+                                    query: prompt
+                                }
+                            }
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Ошибка API: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    const uuid = data.uuid;
+                    
+                    if (!uuid) {
+                        throw new Error('Не получилось начать генерацию изображения');
+                    }
+                    
+                    // Шаг 2: Проверяем статус генерации
+                    await checkGenerationStatus(uuid);
+                    
+                } catch (error) {
+                    showError(`Произошла ошибка: ${error.message}`);
+                    loadingDiv.style.display = 'none';
+                    generateBtn.disabled = false;
+                }
+            });
+            
+            // Функция для скачивания изображения
+            downloadBtn.addEventListener('click', function() {
+                if (!generatedImage.src) return;
+                
+                const link = document.createElement('a');
+                link.href = generatedImage.src;
+                link.download = `generated-image-${new Date().getTime()}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+            
+            async function checkGenerationStatus(uuid) {
+                const STATUS_URL = `https://api.fusionbrain.ai/web/api/v1/text2image/status/${uuid}`;
+                
+                // Проверяем статус каждые 3 секунды
+                const interval = setInterval(async () => {
+                    try {
+                        const response = await fetch(STATUS_URL, {
+                            headers: {
+                                'X-Key': `Key ${API_KEY}`
+                            }
+                        });
+                        
+                        if (!response.ok) {
+                            clearInterval(interval);
+                            throw new Error(`Ошибка при проверке статуса: ${response.status}`);
+                        }
+                        
+                        const data = await response.json();
+                        
+                        if (data.status === 'DONE') {
+                            clearInterval(interval);
+                            displayGeneratedImage(data.images[0]);
+                        } else if (data.status === 'FAIL') {
+                            clearInterval(interval);
+                            throw new Error('Генерация изображения не удалась');
+                        }
+                        // Если статус 'INIT' или 'PROCESSING', продолжаем ждать
+                        
+                    } catch (error) {
+                        clearInterval(interval);
+                        showError(`Ошибка при проверке статуса: ${error.message}`);
+                        loadingDiv.style.display = 'none';
+                        generateBtn.disabled = false;
+                    }
+                }, 3000);
+            }
+            
+            function displayGeneratedImage(base64Image) {
+                generatedImage.src = `data:image/png;base64,${base64Image}`;
+                generatedImage.style.display = 'block';
+                generatedImage.onload = function() {
+                    loadingDiv.style.display = 'none';
+                    generateBtn.disabled = false;
+                    downloadBtn.style.display = 'inline-block';
+                };
+            }
+            
+            function showError(message) {
+                errorElement.textContent = message;
+            }
+        });
+    </script>
+</body>
+</html>
