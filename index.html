@@ -176,73 +176,60 @@
                 } catch (error) {
                     showError(`Произошла ошибка: ${error.message}`);
                     loadingDiv.style.display = 'none';
-                    generateBtn.disabled = false;
-                }
-            });
-            
-            // Функция для скачивания изображения
-            downloadBtn.addEventListener('click', function() {
-                if (!generatedImage.src) return;
-                
-                const link = document.createElement('a');
-                link.href = generatedImage.src;
-                link.download = `generated-image-${new Date().getTime()}.png`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            });
-            
-            async function checkGenerationStatus(uuid) {
-                const STATUS_URL = `https://api.fusionbrain.ai/web/api/v1/text2image/status/${uuid}`;
-                
-                // Проверяем статус каждые 3 секунды
-                const interval = setInterval(async () => {
-                    try {
-                        const response = await fetch(STATUS_URL, {
-                            headers: {
-                                'X-Key': `Key ${API_KEY}`
-                            }
-                        });
-                        
-                        if (!response.ok) {
-                            clearInterval(interval);
-                            throw new Error(`Ошибка при проверке статуса: ${response.status}`);
-                        }
-                        
-                        const data = await response.json();
-                        
-                        if (data.status === 'DONE') {
-                            clearInterval(interval);
-                            displayGeneratedImage(data.images[0]);
-                        } else if (data.status === 'FAIL') {
-                            clearInterval(interval);
-                            throw new Error('Генерация изображения не удалась');
-                        }
-                        // Если статус 'INIT' или 'PROCESSING', продолжаем ждать
-                        
-                    } catch (error) {
-                        clearInterval(interval);
-                        showError(`Ошибка при проверке статуса: ${error.message}`);
-                        loadingDiv.style.display = 'none';
-                        generateBtn.disabled = false;
-                    }
-                }, 3000);
+import json
+import time
+
+import requests
+
+
+class FusionBrainAPI:
+
+    def __init__(self, url, api_key, secret_key):
+        self.URL = url
+        self.AUTH_HEADERS = {
+            'X-Key': f'Key {api_key}',
+            'X-Secret': f'Secret {secret_key}',
+        }
+
+    def get_pipeline(self):
+        response = requests.get(self.URL + 'key/api/v1/pipelines', headers=self.AUTH_HEADERS)
+        data = response.json()
+        return data[0]['id']
+
+    def generate(self, prompt, pipeline, images=1, width=1024, height=1024):
+        params = {
+            "type": "GENERATE",
+            "numImages": images,
+            "width": width,
+            "height": height,
+            "generateParams": {
+                "query": f'{prompt}'
             }
-            
-            function displayGeneratedImage(base64Image) {
-                generatedImage.src = `data:image/png;base64,${base64Image}`;
-                generatedImage.style.display = 'block';
-                generatedImage.onload = function() {
-                    loadingDiv.style.display = 'none';
-                    generateBtn.disabled = false;
-                    downloadBtn.style.display = 'inline-block';
-                };
-            }
-            
-            function showError(message) {
-                errorElement.textContent = message;
-            }
-        });
-    </script>
-</body>
-</html>
+        }
+
+        data = {
+            'pipeline_id': (None, pipeline),
+            'params': (None, json.dumps(params), 'application/json')
+        }
+        response = requests.post(self.URL + 'key/api/v1/pipeline/run', headers=self.AUTH_HEADERS, files=data)
+        data = response.json()
+        return data['uuid']
+
+    def check_generation(self, request_id, attempts=10, delay=10):
+        while attempts > 0:
+            response = requests.get(self.URL + 'key/api/v1/pipeline/status/' + request_id, headers=self.AUTH_HEADERS)
+            data = response.json()
+            if data['status'] == 'DONE':
+                return data['result']['files']
+
+            attempts -= 1
+            time.sleep(delay)
+
+
+if __name__ == '__main__':
+    api = FusionBrainAPI('https://api-key.fusionbrain.ai/', 'D885F4E3A5FCBD05E82F0A327A1D80A5', 'B3749E885CDC3766AAC02CC91D052B0E')
+    pipeline_id = api.get_pipeline()
+    uuid = api.generate("Sun in sky", pipeline_id)
+    files = api.check_generation(uuid)
+    print(files)
+
